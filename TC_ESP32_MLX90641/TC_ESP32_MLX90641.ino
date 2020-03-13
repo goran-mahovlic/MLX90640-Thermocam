@@ -1,11 +1,11 @@
 /**
  * Based on: 
  * - https://github.com/wilhelmzeuschner/arduino_thermal_camera_with_sd_and_img_processing.
- * - https://github.com/sparkfun/SparkFun_MLX90640_Arduino_Example
+ * - https://github.com/sparkfun/SparkFun_MLX90641_Arduino_Example
  * 
  * Hardware:
  * - ESP32: https://www.espressif.com/en/products/hardware/esp32-devkitc/overview
- * - Sensor: https://shop.pimoroni.com/products/mlx90640-thermal-camera-breakout
+ * - Sensor: https://shop.pimoroni.com/products/mlx90641-thermal-camera-breakout
  * - Display: https://www.amazon.de/gp/product/B07DPMV34R/, https://www.pjrc.com/store/display_ili9341.html
  */
 
@@ -15,8 +15,8 @@
 #include <SPI.h>
 #include <Wire.h>
 
-#include "MLX90640_API.h"
-#include "MLX90640_I2C_Driver.h"
+#include "MLX90641_API.h"
+#include "MLX90641_I2C_Driver.h"
 
 #define EMMISIVITY 0.95
 #define INTERPOLATE false
@@ -33,9 +33,9 @@
 #define min(a,b) ((a)<(b)?(a):(b))
 #define max(a,b) ((a)>(b)?(a):(b))
 
-const byte MLX90640_address = 0x33; //Default 7-bit unshifted address of the MLX90640
-#define TA_SHIFT 8 //Default shift for MLX90640 in open air
-paramsMLX90640 mlx90640;
+const byte MLX90641_address = 0x33; //Default 7-bit unshifted address of the MLX90641
+#define TA_SHIFT 8 //Default shift for MLX90641 in open air
+paramsMLX90641 mlx90641;
 
 
 TFT_eSPI Display = TFT_eSPI();
@@ -60,13 +60,13 @@ float intPoint, val, a, b, c, d, ii;
 int x, y, i, j;
 
 
-// array for the 32 x 24 measured tempValues
-static float tempValues[32*24];
+// array for the 16 x 12 measured tempValues
+static float tempValues[16*12];
 
 // Output size
 #define O_WIDTH 224
-#define O_HEIGHT 168
-#define O_RATIO O_WIDTH/32
+#define O_HEIGHT 320
+#define O_RATIO O_WIDTH/16
 
 float **interpolated = NULL;
 uint16_t *imageData = NULL;
@@ -78,43 +78,41 @@ void setup() {
   // Connect thermal sensor.
   Wire.begin();
   Wire.setClock(400000); // Increase I2C clock speed to 400kHz
-  Wire.beginTransmission((uint8_t)MLX90640_address);
+  Wire.beginTransmission((uint8_t)MLX90641_address);
   if (Wire.endTransmission() != 0) {
-    Serial.println("MLX90640 not detected at default I2C address. Please check wiring.");
+    Serial.println("MLX90641 not detected at default I2C address. Please check wiring.");
   }
   else {
-    Serial.println("MLX90640 online!");
+    Serial.println("MLX90641 online!");
   }
   // Get device parameters - We only have to do this once
   int status;
-  uint16_t eeMLX90640[832];
-  status = MLX90640_DumpEE(MLX90640_address, eeMLX90640);
+  uint16_t eeMLX90641[832];
+  status = MLX90641_DumpEE(MLX90641_address, eeMLX90641);
+  
   if (status != 0) Serial.println("Failed to load system parameters");
-  status = MLX90640_ExtractParameters(eeMLX90640, &mlx90640);
+  status = MLX90641_ExtractParameters(eeMLX90641, &mlx90641);
   if (status != 0) Serial.println("Parameter extraction failed");
   // Set refresh rate
-  MLX90640_SetRefreshRate(MLX90640_address, 0x05); // Set rate to 8Hz effective - Works at 800kHz
+  MLX90641_SetRefreshRate(MLX90641_address, 0x05); // Set rate to 8Hz effective - Works at 800kHz
   // Once EEPROM has been read at 400kHz we can increase
   Wire.setClock(800000);
-
   // Set up Display.
   pinMode(TFT_DC, OUTPUT);
   SPI.begin();
+  Serial.println("Passed4");
   SPI.setFrequency(80000000L);
   Display.begin();
   //Display.setRotation(3);
   Display.fillScreen(C_BLACK);
-
 
   // Prepare interpolated array
   interpolated = (float **)malloc(O_HEIGHT * sizeof(float *));
   for (int i=0; i<O_HEIGHT; i++) {
     interpolated[i] = (float *)malloc(O_WIDTH * sizeof(float));
   }
-
   // Prepare imageData array
   imageData = (uint16_t *)malloc(O_WIDTH * O_HEIGHT * sizeof(uint16_t));
-
   // get the cutoff points for the color interpolation routines
   // note this function called when the temp scale is changed
   setAbcd();
@@ -132,24 +130,24 @@ void loop() {
 }
 
 
-// Read pixel data from MLX90640.
+// Read pixel data from MLX90641.
 void readTempValues() {
   for (byte x = 0 ; x < 2 ; x++) // Read both subpages
   {
-    uint16_t mlx90640Frame[834];
-    int status = MLX90640_GetFrameData(MLX90640_address, mlx90640Frame);
+    uint16_t mlx90641Frame[834];
+    int status = MLX90641_GetFrameData(MLX90641_address, mlx90641Frame);
     if (status < 0)
     {
       Serial.print("GetFrame Error: ");
       Serial.println(status);
     }
 
-    float vdd = MLX90640_GetVdd(mlx90640Frame, &mlx90640);
-    float Ta = MLX90640_GetTa(mlx90640Frame, &mlx90640);
+    float vdd = MLX90641_GetVdd(mlx90641Frame, &mlx90641);
+    float Ta = MLX90641_GetTa(mlx90641Frame, &mlx90641);
 
     float tr = Ta - TA_SHIFT; //Reflected temperature based on the sensor ambient temperature
 
-    MLX90640_CalculateTo(mlx90640Frame, &mlx90640, EMMISIVITY, tr, tempValues);
+    MLX90641_CalculateTo(mlx90641Frame, &mlx90641, EMMISIVITY, tr, tempValues);
   }
 }
 
@@ -158,10 +156,10 @@ int row;
 float temp, temp2;
 
 void interpolate() {
-  for (row=0; row<24; row++) {
+  for (row=0; row<12; row++) {
     for (x=0; x<O_WIDTH; x++) {
-      temp  = tempValues[(31 - (x/7)) + (row*32) + 1];
-      temp2 = tempValues[(31 - (x/7)) + (row*32)];
+      temp  = tempValues[(15 - (x/7)) + (row*16) + 1];
+      temp2 = tempValues[(15 - (x/7)) + (row*16)];
       interpolated[row*7][x] = lerp(temp, temp2, x%7/7.0);
     }
   }
@@ -192,9 +190,9 @@ void drawPicture() {
     Display.pushImage(8, 8, O_WIDTH, O_HEIGHT, imageData);
   }
   else {
-    for (y=0; y<24; y++) {
-      for (x=0; x<32; x++) {
-        Display.fillRect(8 + x*7, 8 + y*7, 7, 7, getColor(tempValues[(31-x) + (y*32)]));
+    for (y=0; y<12; y++) {
+      for (x=0; x<16; x++) {
+        Display.fillRect(8 + x*7, 8 + y*7, 7, 7, getColor(tempValues[(15-x) + (y*16)]));
       }
     }
   }
@@ -248,7 +246,7 @@ void setTempScale() {
   minTemp = 255;
   maxTemp = 0;
 
-  for (i = 0; i < 768; i++) {
+  for (i = 0; i < 192; i++) {
     minTemp = min(minTemp, tempValues[i]);
     maxTemp = max(maxTemp, tempValues[i]);
   }
@@ -291,15 +289,13 @@ void drawLegend() {
 
 // Draw a circle + measured value.
 void drawMeasurement() {
-
   // Mark center measurement
   Display.drawCircle(120, 8+84, 3, TFT_WHITE);
-
   // Measure and print center temperature
   centerTemp = (tempValues[383 - 16] + tempValues[383 - 15] + tempValues[384 + 15] + tempValues[384 + 16]) / 4;
   Display.setCursor(86, 214);
   Display.setTextColor(TFT_WHITE, TFT_BLACK);
   Display.setTextFont(2);
   Display.setTextSize(2);
-  Display.print(String(centerTemp).substring(0, 5) + " °C");
+ // Display.print(String(centerTemp).substring(0, 5) + " °C");
 }
