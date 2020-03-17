@@ -2,11 +2,14 @@
  * Based on: 
  * - https://github.com/wilhelmzeuschner/arduino_thermal_camera_with_sd_and_img_processing.
  * - https://github.com/sparkfun/SparkFun_MLX90641_Arduino_Example
+ * - https://github.com/melexis/mlx90641-library
+ * - https://github.com/Bodmer/TFT_eSPI
  * 
  * Hardware:
  * - ESP32: https://www.espressif.com/en/products/hardware/esp32-devkitc/overview
  * - Sensor: https://shop.pimoroni.com/products/mlx90641-thermal-camera-breakout
  * - Display: https://www.amazon.de/gp/product/B07DPMV34R/, https://www.pjrc.com/store/display_ili9341.html
+ * - PMOD: https://oshpark.com/shared_projects/QxI4a30m
  */
 
 
@@ -48,8 +51,8 @@ unsigned long tempTime = millis();
 unsigned long tempTime2 = 0;
 
 // start with some initial colors
-float minTemp = 20.0;
-float maxTemp = 40.0;
+float minTemp = 10.0;
+float maxTemp = 50.0;
 
 
 // variables for interpolated colors
@@ -64,9 +67,9 @@ int x, y, i, j;
 static float tempValues[16*12];
 
 // Output size
-#define O_WIDTH 224
-#define O_HEIGHT 320
-#define O_RATIO O_WIDTH/16
+#define O_WIDTH 32
+#define O_HEIGHT 24
+#define O_RATIO O_WIDTH/8
 
 float **interpolated = NULL;
 uint16_t *imageData = NULL;
@@ -158,16 +161,16 @@ float temp, temp2;
 void interpolate() {
   for (row=0; row<12; row++) {
     for (x=0; x<O_WIDTH; x++) {
-      temp  = tempValues[(15 - (x/7)) + (row*16) + 1];
-      temp2 = tempValues[(15 - (x/7)) + (row*16)];
-      interpolated[row*7][x] = lerp(temp, temp2, x%7/7.0);
+      temp  = tempValues[(15 - (x/3)) + (row*16) + 1];
+      temp2 = tempValues[(15 - (x/3)) + (row*16)];
+      interpolated[row*4][x] = lerp(temp, temp2, x%4/4.0);
     }
   }
   for (x=0; x<O_WIDTH; x++) {
     for (y=0; y<O_HEIGHT; y++) {
-      temp  = interpolated[y-y%7][x];
-      temp2 = interpolated[min((y-y%7)+7, O_HEIGHT-7)][x];
-      interpolated[y][x] = lerp(temp, temp2, 1);//y%7/7.0);
+      temp  = interpolated[y-y%4][x];
+      temp2 = interpolated[min((y-y%4)+4, O_HEIGHT-4)][x];
+      interpolated[y][x] = lerp(temp, temp2, 1);//y%4/4.0);
     }
   }
 }
@@ -187,12 +190,12 @@ void drawPicture() {
         imageData[(y*O_WIDTH) + x] = getColor(interpolated[y][x]);
       }
     }
-    Display.pushImage(8, 8, O_WIDTH, O_HEIGHT, imageData);
+    Display.pushImage(16, 16, O_WIDTH, O_HEIGHT, imageData);
   }
   else {
     for (y=0; y<12; y++) {
       for (x=0; x<16; x++) {
-        Display.fillRect(8 + x*7, 8 + y*7, 7, 7, getColor(tempValues[(15-x) + (y*16)]));
+        Display.fillRect(16 + x*14, 16 + y*14, 14, 14, getColor(tempValues[(15-x) + (y*16)]));
       }
     }
   }
@@ -292,10 +295,10 @@ void drawMeasurement() {
   // Mark center measurement
   Display.drawCircle(120, 8+84, 3, TFT_WHITE);
   // Measure and print center temperature
-  centerTemp = (tempValues[383 - 16] + tempValues[383 - 15] + tempValues[384 + 15] + tempValues[384 + 16]) / 4;
+  centerTemp = (tempValues[96 - 16] + tempValues[96 - 11] + tempValues[96 + 11] + tempValues[96 + 12]) / 4;
   Display.setCursor(86, 214);
   Display.setTextColor(TFT_WHITE, TFT_BLACK);
   Display.setTextFont(2);
   Display.setTextSize(2);
- // Display.print(String(centerTemp).substring(0, 5) + " °C");
+  Display.print(String(centerTemp).substring(0, 5) + " °C");
 }
